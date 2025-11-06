@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>Penguin Joy</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #0a2230;
+        overflow: hidden;
+        font-family: "Inter", system-ui, sans-serif;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #wrap {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .fit {
+        position: relative;
+        width: min(100vw, 66.666vh);
+        height: calc(min(100vw, 66.666vh) * 1.5);
+      }
+      canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+        touch-action: none;
+        border-radius: 16px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+      }
+      .hud {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        color: #e9f7ff;
+        padding: 10px;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .score {
+        font-weight: 800;
+        font-size: clamp(18px, 4.2vw, 26px);
+        text-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+        transition: transform 0.2s ease;
+      }
+      .score.pop {
+        transform: scale(1.4);
+      }
+      .btn {
+        pointer-events: auto;
+        appearance: none;
+        border: none;
+        border-radius: 12px;
+        background: linear-gradient(180deg, #38b6ff, #1f87d9);
+        color: white;
+        padding: 12px 18px;
+        font-weight: 700;
+        box-shadow: 0 6px 18px rgba(40, 140, 220, 0.35);
+        cursor: pointer;
+      }
+      .btn:active {
+        transform: translateY(1px);
+      }
+      .center {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: auto;
+        z-index: 2;
+      }
+      .panel {
+        background: rgba(2, 20, 32, 0.78);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        padding: 20px 24px;
+        border-radius: 16px;
+        backdrop-filter: blur(8px);
+        color: #e8f6ff;
+        text-align: center;
+        width: min(85%, 360px);
+      }
+      .title {
+        font-size: 24px;
+        font-weight: 800;
+        margin-bottom: 8px;
+      }
+      .hint {
+        font-size: 15px;
+        opacity: 0.88;
+        margin-bottom: 14px;
+      }
+      .touchJump {
+        position: absolute;
+        bottom: 16px;
+        right: 16px;
+        width: 108px;
+        height: 108px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.1);
+        border: 2px solid rgba(255, 255, 255, 0.2);
+        pointer-events: auto;
+        display: grid;
+        place-items: center;
+        color: #d5f0ff;
+        font-weight: 800;
+        font-size: 14px;
+        user-select: none;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+      }
+      .touchJump:active {
+        background: rgba(255, 255, 255, 0.25);
+        transform: scale(0.95);
+      }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@farcade/game-sdk@0.2.1/dist/index.min.js"></script>
+  </head>
+  <body>
+    <div id="wrap">
+      <div class="fit">
+        <canvas id="canvas" width="400" height="600"></canvas>
+        <div class="hud">
+          <div class="row">
+            <div id="score" class="score">0</div>
+            <button id="restartBtn" class="btn" style="display: none">Yeniden</button>
+          </div>
+        </div>
+        <div id="startOverlay" class="center">
+          <div class="panel">
+            <div class="title">Penguin Joy</div>
+            <div class="hint">Dokun veya Boşluk ↑ tuşuna basarak zıpla!</div>
+            <button id="startBtn" class="btn">Başla</button>
+          </div>
+        </div>
+        <div id="gameOverOverlay" class="center" style="display: none">
+          <div class="panel">
+            <div class="title">Harikaydın!</div>
+            <div class="hint">Skor: <span id="finalScore">0</span> puan</div>
+            <button id="playAgainBtn" class="btn">Tekrar Oyna</button>
+          </div>
+        </div>
+        <div id="touchJump" class="touchJump">Zıpla</div>
+      </div>
+    </div>
+
+    <script id="game-config" type="application/json">
+      {
+        "player": {
+          "speed": 4,
+          "jumpStrength": 16,
+          "maxJumps": 2,
+          "doubleJumpMultiplier": 0.85,
+          "width": 28,
+          "height": 42
+        },
+        "enemy": { "spawnRate": 1000, "minSize": 20, "maxSize": 55, "baseSpeed": 3.2 },
+        "gameplay": { "gravity": 0.78, "particles": true },
+        "ui": { "showStart": true, "showJumpButton": true },
+        "_meta": { "player.speed": { "type": "number", "min": 2, "max": 8, "step": 0.5, "label": "Hız" } }
+      }
+    </script>
+
+    <script>
+      const CONFIG = JSON.parse(document.getElementById("game-config").textContent);
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+      let gameState = "start",
+        score = 0,
+        lastTime = 0,
+        timeSec = 0;
+      let player = {
+        x: 70,
+        y: 0,
+        w: CONFIG.player.width,
+        h: CONFIG.player.height,
+        vy: 0,
+        onGround: false,
+        jumpCount: 0,
+      };
+      const groundY = 600 - 70;
+      const obstacles = [],
+        particles = [],
+        snowflakes = [];
+      let spawnElapsed = 0,
+        spawnInterval = CONFIG.enemy.spawnRate;
+      let currentTheme = 0;
+      const THEMES = [
+        { bg: "#87CEEB", ground: "#E0F7FA", name: "Güneşli" },
+        { bg: "#1C2526", ground: "#A7C7E7", name: "Gece" },
+        { bg: "#2C3E50", ground: "#D6EAF8", name: "Karlı", snow: true },
+        {
+          bg: "linear-gradient(135deg, #ff9a9e, #fad0c4, #fad0c4, #a18cd1, #fbc2eb)",
+          ground: "#f5f7fa",
+          name: "Gökkuşağı",
+        },
+      ];
+
+      function resizeCanvas() {
+        const dpr = Math.max(1, window.devicePixelRatio);
+        const w = canvas.clientWidth,
+          h = canvas.clientHeight;
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        ctx.scale(dpr, dpr);
+      }
+
+      function resetGame() {
+        score = 0;
+        obstacles.length = 0;
+        particles.length = 0;
+        snowflakes.length = 0;
+        player.x = 70;
+        player.y = groundY - player.h;
+        player.vy = 0;
+        player.onGround = true;
+        player.jumpCount = 0;
+        currentTheme = Math.floor(Math.random() * THEMES.length);
+        spawnElapsed = 0;
+        spawnInterval = CONFIG.enemy.spawnRate;
+      }
+
+      function spawnObstacle() {
+        const size = randInt(CONFIG.enemy.minSize, CONFIG.enemy.maxSize);
+        obstacles.push({
+          x: 420,
+          y: groundY - size,
+          w: size,
+          h: size,
+          baseSize: size,
+          passed: false,
+          pulsePhase: Math.random() * Math.PI * 2,
+        });
+      }
+
+      function randInt(a, b) {
+        return Math.floor(Math.random() * (b - a + 1)) + a;
+      }
+      function randRange(a, b) {
+        return Math.random() * (b - a) + a;
+      }
+      function rectsOverlap(a, b) {
+        return !(a.x + a.w < b.x || a.x > b.x + b.w || a.y + a.h < b.y || a.y > b.y + b.h);
+      }
+
+      function addBurst(x, y, color) {
+        if (!CONFIG.gameplay.particles) return;
+        for (let i = 0; i < 12; i++) {
+          particles.push({ x, y, vx: (Math.random() - 0.5) * 3, vy: -Math.random() * 3 - 1, life: 40, color });
+        }
+      }
+
+      function spawnSnowflake() {
+        snowflakes.push({
+          x: Math.random() * 400,
+          y: -10,
+          r: 1 + Math.random() * 2,
+          vy: 0.5 + Math.random() * 0.8,
+          life: 8000,
+        });
+      }
+
+      function jump() {
+        if (gameState !== "playing" || player.jumpCount >= CONFIG.player.maxJumps) return;
+        const mult = player.jumpCount === 0 ? 1 : CONFIG.player.doubleJumpMultiplier;
+        player.vy = -CONFIG.player.jumpStrength * mult;
+        player.onGround = false;
+        player.jumpCount++;
+        beep(player.jumpCount === 1 ? 600 : 800, 0.08);
+        addBurst(player.x + player.w / 2, player.y + player.h, "#a6e4ff");
+        if (window.FarcadeSDK) window.FarcadeSDK.singlePlayer.actions.hapticFeedback();
+      }
+
+      function beep(freq, dur) {
+        if (!window.AudioContext) return;
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ctx.createOscillator(),
+          g = ctx.createGain();
+        o.type = "sine";
+        o.frequency.setValueAtTime(freq, ctx.currentTime);
+        g.gain.setValueAtTime(0.15, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+        o.connect(g).connect(ctx.destination);
+        o.start();
+        o.stop(ctx.currentTime + dur);
+      }
+
+      function startGame() {
+        resetGame();
+        gameState = "playing";
+        document.getElementById("startOverlay").style.display = "none";
+        document.getElementById("gameOverOverlay").style.display = "none";
+        document.getElementById("restartBtn").style.display = "none";
+      }
+
+      function gameOver() {
+        gameState = "gameover";
+        document.getElementById("finalScore").textContent = Math.floor(score);
+        document.getElementById("gameOverOverlay").style.display = "";
+        document.getElementById("restartBtn").style.display = "";
+        beep(300, 0.3);
+        if (window.FarcadeSDK) window.FarcadeSDK.singlePlayer.actions.gameOver({ score: Math.floor(score) });
+      }
+
+      function drawPenguin(x, y, w, h) {
+        ctx.save();
+        ctx.translate(x + w / 2, y + h / 2);
+        const bob = Math.sin(timeSec * 8) * 2;
+        ctx.translate(0, bob);
+        ctx.rotate(Math.sin(timeSec * 8) * 0.08);
+
+        const scarf = "#ff6ec7";
+        const body = "#0b2530",
+          head = "#163744",
+          face = "#f7fbff",
+          belly = "#f1f8ff",
+          feet = "#ffc96b";
+
+        ctx.fillStyle = body;
+        ctx.beginPath();
+        ctx.ellipse(0, 10, w * 0.38, h * 0.55, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(0, -h * 0.15, w * 0.44, h * 0.48, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = face;
+        ctx.beginPath();
+        ctx.ellipse(0, -h * 0.12, w * 0.34, h * 0.36, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = belly;
+        ctx.beginPath();
+        ctx.ellipse(0, h * 0.18, w * 0.28, h * 0.7, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#0f1b22";
+        ctx.beginPath();
+        ctx.ellipse(-w * 0.12, -h * 0.18, w * 0.07, h * 0.12, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(w * 0.12, -h * 0.18, w * 0.07, h * 0.12, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.ellipse(-w * 0.15, -h * 0.22, w * 0.03, h * 0.03, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(w * 0.09, -h * 0.22, w * 0.03, h * 0.03, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#ffba55";
+        ctx.beginPath();
+        ctx.moveTo(0, -h * 0.05);
+        ctx.quadraticCurveTo(w * 0.08, h * 0.02, 0, h * 0.08);
+        ctx.quadraticCurveTo(-w * 0.08, h * 0.02, 0, -h * 0.05);
+        ctx.fill();
+
+        ctx.fillStyle = scarf;
+        if (ctx.roundRect) {
+          ctx.roundRect(-w * 0.3, -h * 0.02, w * 0.6, h * 0.2, h * 0.05);
+          ctx.fill();
+          ctx.roundRect(w * 0.2, h * 0.05, w * 0.12, h * 0.3, h * 0.03);
+          ctx.fill();
+        }
+
+        ctx.fillStyle = feet;
+        ctx.beginPath();
+        ctx.ellipse(-w * 0.1, h * 0.45, w * 0.1, h * 0.05, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(w * 0.1, h * 0.45, w * 0.1, h * 0.05, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      function update(dt) {
+        if (gameState !== "playing") return;
+        dt = dt || 16.67;
+        const t = dt / 16.67;
+
+        player.vy += CONFIG.gameplay.gravity * t;
+        player.y += player.vy * t;
+
+        if (player.y + player.h >= groundY) {
+          player.y = groundY - player.h;
+          player.vy = 0;
+          if (!player.onGround) {
+            player.onGround = true;
+            player.jumpCount = 0;
+            addBurst(player.x + player.w / 2, player.y + player.h, "#a6e4ff");
+          }
+        }
+        if (player.y > 620) gameOver();
+
+        spawnElapsed += dt;
+        if (spawnElapsed >= spawnInterval) {
+          spawnElapsed = 0;
+          spawnObstacle();
+          spawnInterval = CONFIG.enemy.spawnRate * randRange(0.7, 1.3);
+        }
+
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+          const o = obstacles[i];
+          o.x -= (CONFIG.player.speed + CONFIG.enemy.baseSpeed) * t;
+          o.pulsePhase += dt * 0.006;
+          const pulse = Math.sin(o.pulsePhase) * 0.3 + 0.7;
+          o.w = o.h = o.baseSize * pulse;
+
+          if (!o.passed && o.x + o.w < player.x) {
+            o.passed = true;
+            score += 10;
+            document.getElementById("score").classList.add("pop");
+            setTimeout(() => document.getElementById("score").classList.remove("pop"), 200);
+            beep(880, 0.06);
+          }
+          if (rectsOverlap(player, o)) gameOver();
+          if (o.x + o.w < -50) obstacles.splice(i, 1);
+        }
+
+        for (let i = particles.length - 1; i >= 0; i--) {
+          const p = particles[i];
+          p.x += p.vx * t;
+          p.y += p.vy * t;
+          p.vy += 0.08 * t;
+          p.life -= t;
+          if (p.life <= 0) particles.splice(i, 1);
+        }
+
+        if (THEMES[currentTheme].snow) {
+          if (Math.random() < 0.3) spawnSnowflake();
+          for (let i = snowflakes.length - 1; i >= 0; i--) {
+            const s = snowflakes[i];
+            s.y += s.vy * t;
+            s.x += Math.sin(timeSec + s.x) * 0.3;
+            if (s.y > 620) snowflakes.splice(i, 1);
+          }
+        }
+
+        score += dt * 0.012;
+      }
+
+      function draw() {
+        const w = canvas.clientWidth,
+          h = canvas.clientHeight;
+        ctx.clearRect(0, 0, w, h);
+        ctx.save();
+        ctx.scale(w / 400, h / 600);
+
+        const theme = THEMES[currentTheme];
+        if (typeof theme.bg === "string" && theme.bg.includes("gradient")) {
+          const grad = ctx.createLinearGradient(0, 0, 400, 600);
+          const colors = theme.bg.match(/#[0-9a-f]{3,8}/gi) || [];
+          const n = colors.length;
+          if (n > 0) {
+            colors.forEach((c, i) => grad.addColorStop(n === 1 ? 1 : i / (n - 1), c));
+            ctx.fillStyle = grad;
+          } else {
+            ctx.fillStyle = "#87CEEB";
+          }
+        } else {
+          ctx.fillStyle = theme.bg;
+        }
+        ctx.fillRect(0, 0, 400, 600);
+
+        ctx.fillStyle = theme.ground;
+        ctx.fillRect(0, groundY, 400, 600 - groundY);
+
+        if (theme.snow) {
+          ctx.fillStyle = "rgba(255,255,255,0.9)";
+          snowflakes.forEach((s) => {
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+            ctx.fill();
+          });
+        }
+
+        obstacles.forEach((o) => {
+          ctx.save();
+          ctx.translate(o.x + o.w / 2, o.y + o.h / 2);
+          ctx.fillStyle = "#d9f6ff";
+          ctx.beginPath();
+          ctx.ellipse(0, 0, o.w * 0.45, o.h * 0.45, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        });
+
+        drawPenguin(player.x, player.y, player.w, player.h);
+
+        particles.forEach((p) => {
+          ctx.globalAlpha = p.life / 40;
+          ctx.fillStyle = p.color;
+          ctx.fillRect(p.x, p.y, 4, 4);
+        });
+        ctx.globalAlpha = 1;
+
+        document.getElementById("score").textContent = Math.floor(score);
+        ctx.restore();
+      }
+
+      function animate(t) {
+        const dt = t - lastTime;
+        lastTime = t;
+        timeSec += dt / 1000;
+        update(dt);
+        draw();
+        requestAnimationFrame(animate);
+      }
+
+      function init() {
+        resizeCanvas();
+        window.addEventListener("resize", resizeCanvas);
+        resetGame();
+
+        document.getElementById("startBtn").onclick = startGame;
+        document.getElementById("playAgainBtn").onclick = startGame;
+        document.getElementById("restartBtn").onclick = startGame;
+        document.getElementById("touchJump").addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          jump();
+        });
+        canvas.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          if (gameState === "playing") jump();
+          else startGame();
+        });
+        window.addEventListener("keydown", (e) => {
+          if (e.code === "Space" || e.code === "ArrowUp") {
+            e.preventDefault();
+            jump();
+          }
+        });
+
+        if (window.FarcadeSDK) window.FarcadeSDK.singlePlayer.actions.ready();
+        requestAnimationFrame(animate);
+      }
+
+      init();
+    </script>
+  </body>
+</html>
